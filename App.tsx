@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Order, LineItem } from './types';
 
@@ -144,6 +145,29 @@ const DownloadIcon = () => (
 
 const PLACEHOLDER_SVG = `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgeG1sbnM9Imh0dHA6Ly93d3cudzMub3JnLzIwMDAvc3ZnIj4KICA8cmVjdCB3aWR0aD0iMTAwIiBoZWlnaHQ9IjEwMCIgc3R5bGU9ImZpbGw6ICNmMmYzZjU7IiAvPgogIDx0ZXh0IHg9IjUwJSIgeT0iNTAlIiBkb21pbmFudC1iYXNlbGluZT0ibWlkZGxlIiB0ZXh0LWFuY2hvcj0ibWlkZGxlIiBmb250LWZhbWlsbHk9InNhbnMtc2VyaWYiIGZvbnQtc2lçZPSIxMHB4IiBmaWxsPSIjY2FkMWQ4Ij5JbWFnZSBFcnJvcjwvdGV4dD4KPC9zdmc+Cg==`;
 
+const highlightPhoneNumbers = (text: string | number) => {
+    const textStr = String(text);
+    // Regex for 1300, AU/NZ mobiles
+    const phoneRegex = /(\b1300[\s-]?\d{3}[\s-]?\d{3}\b|\b04\d{2}[\s-]?\d{3}[\s-]?\d{3}\b|\b\+61[\s-]?4\d{2}[\s-]?\d{3}[\s-]?\d{3}\b|\b02\d{1}[\s-]?\d{3}[\s-]?\d{4,}\b|\b\+64[\s-]?2\d{1}[\s-]?\d{3,}[\s-]?\d{3,}\b)/gi;
+    
+    const parts = textStr.split(phoneRegex);
+
+    return (
+        <React.Fragment>
+            {parts.map((part, i) => {
+                if (part && phoneRegex.test(part)) {
+                    return (
+                        <span key={i} className="bg-yellow-200 font-semibold px-1 rounded">
+                            {part}
+                        </span>
+                    );
+                }
+                return part;
+            })}
+        </React.Fragment>
+    );
+};
+
 interface PackingSlipProps {
     order: Order;
     skuToMaterialMap: Map<string, string>;
@@ -238,21 +262,22 @@ const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap, onLo
                     </div>
                 </header>
 
-                <section className="grid grid-cols-1 md:grid-cols-12 gap-8 mt-6">
-                    <div className="md:col-span-8">
+                <section className="grid grid-cols-1 sm:grid-cols-12 gap-2 mt-6">
+                    <div className="sm:col-span-7">
                         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">From</h3>
                         <p className="font-bold text-gray-700">{FROM_ADDRESS.name}</p>
                         <p className="text-gray-600">{FROM_ADDRESS.street}</p>
                         <p className="text-gray-600">{FROM_ADDRESS.cityStateZip}</p>
-                        <p className="text-gray-600">{FROM_ADDRESS.phone}</p>
+                        <p className="text-gray-600">{highlightPhoneNumbers(FROM_ADDRESS.phone)}</p>
                     </div>
-                    <div className="md:col-span-4 md:col-start-9">
+                    <div className="sm:col-span-5">
                         <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">Ship to</h3>
-                        <p className="font-bold text-gray-700">{order.shipping.first_name} {order.shipping.last_name}</p>
-                        <p className="text-gray-600">{order.shipping.company}</p>
+                        <p className="text-gray-600">{order.shipping.first_name} {order.shipping.last_name}</p>
+                        <p className="font-bold text-gray-700">{order.shipping.company}</p>
                         <p className="text-gray-600">{order.shipping.address_1}</p>
                         <p className="text-gray-600">{order.shipping.city} {order.shipping.postcode}</p>
                         <p className="text-gray-600">Email: {order.billing.email}</p>
+                        {order.shipping.phone && <p className="text-gray-600">Phone: {highlightPhoneNumbers(order.shipping.phone)}</p>}
                     </div>
                 </section>
 
@@ -294,7 +319,7 @@ const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap, onLo
                                             {item.meta_data.filter(meta => meta.display_key && !meta.key.startsWith('_')).map(meta => (
                                                 <div key={meta.id}>
                                                     <span className="font-semibold">{meta.display_key}: </span>
-                                                    <span>{meta.display_value}</span>
+                                                    <span>{highlightPhoneNumbers(meta.display_value)}</span>
                                                 </div>
                                             ))}
                                         </div>
