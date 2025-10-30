@@ -1,0 +1,5 @@
+{
+  "name": "Packing Slip Generator",
+  "description": "An application to generate printable packing slips from WooCommerce order JSON data. Paste your JSON array of orders to generate individual, downloadable PDF packing slips for each order.",
+  "requestFramePermissions": []
+}
