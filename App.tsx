@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import type { Order, LineItem } from './types';
 
 const FROM_ADDRESS = {
@@ -147,9 +147,10 @@ const PLACEHOLDER_SVG = `data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMTAwIiBoZWlna
 interface PackingSlipProps {
     order: Order;
     skuToMaterialMap: Map<string, string>;
+    onLoadingComplete: (orderId: number) => void;
 }
 
-const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap }) => {
+const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap, onLoadingComplete }) => {
     const slipRef = useRef<HTMLDivElement>(null);
     const [isGenerating, setIsGenerating] = useState(false);
     
@@ -159,14 +160,21 @@ const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap }) =>
 
     useEffect(() => {
         loadedImagesCount.current = 0;
-        setImagesLoading(totalImages > 0);
-    }, [order.id, totalImages]);
+        const hasImages = totalImages > 0;
+        setImagesLoading(hasImages);
+        if (!hasImages) {
+            onLoadingComplete(order.id);
+        }
+    }, [order.id, totalImages, onLoadingComplete]);
 
     const handleImageLoadOrError = () => {
         loadedImagesCount.current++;
         if (loadedImagesCount.current >= totalImages) {
             // Use a small timeout to allow the browser to paint the last image before capture
-            setTimeout(() => setImagesLoading(false), 200);
+            setTimeout(() => {
+                setImagesLoading(false);
+                onLoadingComplete(order.id);
+            }, 200);
         }
     };
 
@@ -219,7 +227,7 @@ const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap }) =>
 
     return (
         <div className="bg-white shadow-lg rounded-lg p-4 sm:p-8 break-inside-avoid mb-8 relative">
-            <div ref={slipRef} className="p-4">
+            <div ref={slipRef} className="p-4 packing-slip-content">
                 <header className="flex justify-between items-start pb-4 border-b">
                     <div>
                         <h1 className="text-2xl font-bold text-gray-800">Packing slip</h1>
@@ -253,8 +261,8 @@ const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap }) =>
                         <div className="col-span-3">Image</div>
                         <div className="col-span-1">SKU</div>
                         <div className="col-span-1 text-center">QTY</div>
-                        <div className="col-span-3">Media</div>
-                        <div className="col-span-4">Product</div>
+                        <div className="col-span-2">Media</div>
+                        <div className="col-span-5">Product</div>
                     </div>
                     <div className="space-y-4">
                         {order.line_items.map((item: LineItem) => {
@@ -279,8 +287,8 @@ const PackingSlip: React.FC<PackingSlipProps> = ({ order, skuToMaterialMap }) =>
                                     </div>
                                     <div className="sm:col-span-1 text-gray-700 font-mono text-sm">{item.sku}</div>
                                     <div className="sm:col-span-1 text-gray-800 font-bold text-lg text-center">{item.quantity}</div>
-                                    <div className="sm:col-span-3 text-gray-600 text-xs">{material}</div>
-                                    <div className="sm:col-span-4">
+                                    <div className="sm:col-span-2 text-gray-600 text-xs">{material}</div>
+                                    <div className="sm:col-span-5">
                                         <p className="font-semibold text-gray-800">{item.name}</p>
                                         <div className="text-xs text-gray-600 mt-1 space-y-1">
                                             {item.meta_data.filter(meta => meta.display_key && !meta.key.startsWith('_')).map(meta => (
@@ -313,12 +321,18 @@ export default function App() {
     const [jsonInput, setJsonInput] = useState('');
     const [orders, setOrders] = useState<Order[]>([]);
     const [error, setError] = useState<string | null>(null);
+    const [isGeneratingAll, setIsGeneratingAll] = useState(false);
+    const [imageLoadingStates, setImageLoadingStates] = useState<Record<number, boolean>>({});
 
     const skuToMaterialMap = React.useMemo(() => 
         new Map(skuMaterials.flatMap(item => 
             item.SKU.split(' or ').map(sku => [sku.trim(), item.Materials])
         ))
     , []);
+
+    const handleLoadingComplete = useCallback((orderId: number) => {
+        setImageLoadingStates(prev => ({ ...prev, [orderId]: false }));
+    }, []);
 
     const handleParseJson = () => {
         if (!jsonInput.trim()) {
@@ -330,6 +344,12 @@ export default function App() {
             const data = JSON.parse(jsonInput);
             if (Array.isArray(data)) {
                 setOrders(data);
+                 const initialLoadingStates = data.reduce((acc: Record<number, boolean>, order: Order) => {
+                    const hasImages = order.line_items.some(item => item.image?.src);
+                    acc[order.id] = hasImages;
+                    return acc;
+                }, {});
+                setImageLoadingStates(initialLoadingStates);
                 setError(null);
             } else {
                 setError("Invalid JSON format. Please provide an array of orders.");
@@ -340,6 +360,41 @@ export default function App() {
             setOrders([]);
         }
     };
+
+    const handleDownloadAllPdfs = async () => {
+        setIsGeneratingAll(true);
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({ orientation: 'p', unit: 'mm', format: 'a4' });
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const slipElements = document.querySelectorAll<HTMLElement>('.packing-slip-content');
+
+        for (let i = 0; i < slipElements.length; i++) {
+            const slipElement = slipElements[i];
+            const canvas = await window.html2canvas(slipElement, { scale: 2, useCORS: true });
+            
+            if (i > 0) pdf.addPage();
+            
+            const imgData = canvas.toDataURL('image/png');
+            const ratio = canvas.width / canvas.height;
+            let imgWidth = pdfWidth - 20;
+            let imgHeight = imgWidth / ratio;
+            
+            if (imgHeight > pdfHeight - 20) {
+                imgHeight = pdfHeight - 20;
+                imgWidth = imgHeight * ratio;
+            }
+
+            const x = (pdfWidth - imgWidth) / 2;
+            const y = 10;
+            pdf.addImage(imgData, 'PNG', x, y, imgWidth, imgHeight);
+        }
+
+        pdf.save(`All_Packing_Slips.pdf`);
+        setIsGeneratingAll(false);
+    };
+
+    const areAnyImagesLoading = Object.values(imageLoadingStates).some(isLoading => isLoading);
 
     return (
         <div className="min-h-screen font-sans text-gray-900">
@@ -379,9 +434,19 @@ export default function App() {
                 {orders.length > 0 && (
                     <div className="mt-16">
                         <h2 className="text-3xl font-bold text-slate-800 text-center mb-8">Generated Slips</h2>
+                        <div className="max-w-5xl mx-auto mb-8 text-center">
+                            <button
+                                onClick={handleDownloadAllPdfs}
+                                disabled={isGeneratingAll || areAnyImagesLoading}
+                                className="bg-green-600 text-white font-bold py-3 px-6 rounded-lg hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-green-500 transition-transform transform hover:scale-105 disabled:bg-gray-400 disabled:cursor-not-allowed flex items-center justify-center mx-auto"
+                            >
+                                <DownloadIcon />
+                                {isGeneratingAll ? 'Generating PDF...' : (areAnyImagesLoading ? 'Loading Images...' : 'Download All Slips')}
+                            </button>
+                        </div>
                         <div className="max-w-5xl mx-auto space-y-8">
                             {orders.map((order) => (
-                                <PackingSlip key={order.id} order={order} skuToMaterialMap={skuToMaterialMap} />
+                                <PackingSlip key={order.id} order={order} skuToMaterialMap={skuToMaterialMap} onLoadingComplete={handleLoadingComplete} />
                             ))}
                         </div>
                     </div>
